@@ -1,6 +1,7 @@
 """What Drives Students' Final Math Grades? — interactive statistical study (Streamlit).
 Run locally:  streamlit run app.py
 """
+import io
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -56,7 +57,7 @@ h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !impor
 .topline {{ height: 1px; background: {LINE}; margin: 6px 0 22px; }}
 
 /* ---------- landing hero ---------- */
-.hero {{ position: relative; overflow: hidden; border-radius: 24px; background: {NAVY};
+.hero {{ position: relative; overflow: hidden; contain: paint; border-radius: 24px; background: {NAVY};
         border: 1px solid {LINE}; padding: 70px 40px 34px; min-height: 560px; }}
 .hero .glow {{ position: absolute; left: 0; right: 0; bottom: 0; height: 78%;
         background:
@@ -64,7 +65,7 @@ h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !impor
           linear-gradient(90deg, {BLUE} 0%, #3B5BDB 22%, {ORANGE_UI} 42%, #FF9A62 50%, {ORANGE_UI} 58%, #E0457B 72%, {BLUE} 100%);
         -webkit-mask-image: radial-gradient(ellipse 55% 85% at 50% 100%, black 0%, rgba(0,0,0,.55) 45%, transparent 75%),
                             linear-gradient(90deg, rgba(0,0,0,.45) 0 5%, transparent 16% 84%, rgba(0,0,0,.45) 95% 100%);
-        -webkit-mask-composite: source-over; opacity: .9; }}
+        opacity: .9; transform: translateZ(0); will-change: transform; }}
 .hero .glow2 {{ position: absolute; inset: 0; background: radial-gradient(ellipse 40% 30% at 50% 100%, rgba(252,115,77,.35), transparent 70%); }}
 .hero .content {{ position: relative; text-align: center; }}
 .hero .kick {{ font-family: 'JetBrains Mono', monospace; font-size: .74rem; color: {MUTED}; letter-spacing: .14em; text-transform: uppercase; }}
@@ -77,7 +78,7 @@ h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !impor
 .hero .s1 {{ left: 44px; top: 300px; }} .hero .s2 {{ left: 44px; top: 380px; }}
 .hero .s3 {{ right: 44px; top: 300px; text-align: right; }} .hero .s4 {{ right: 44px; top: 380px; text-align: right; }}
 .panels {{ position: relative; display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 16px; margin-top: 150px; }}
-.panel {{ background: rgba(15,28,64,.88); border: 1px solid {LINE}; border-radius: 14px; padding: 12px 14px; backdrop-filter: blur(6px); text-align: left; }}
+.panel {{ background: rgba(15,28,64,.88); border: 1px solid {LINE}; border-radius: 14px; padding: 12px 14px; text-align: left; }}
 .panel.hot {{ background: linear-gradient(160deg, {ORANGE_UI}, #E0457B); border: none; }}
 .panel .t {{ font-size: .72rem; color: #C9D2EE; margin-bottom: 10px; }}
 .panel.hot .t {{ color: white; }}
@@ -177,6 +178,45 @@ def page_header(kicker, title, text):
 
 
 # ================================================================ pages
+# Charts are rendered once per parameter set and kept in memory (shared by all visitors),
+# so moving a slider or switching pages does not redraw matplotlib figures from scratch.
+@st.cache_resource
+def _png_store():
+    return {}
+
+
+def chart(key, build):
+    store = _png_store()
+    if key not in store:
+        f = build()
+        f.tight_layout()
+        buf = io.BytesIO()
+        f.savefig(buf, format="png", dpi=110)
+        plt.close(f)
+        store[key] = buf.getvalue()
+    st.image(store[key], width="stretch")
+
+
+@st.cache_data
+def fit_normal():
+    g = df.loc[df.G3 > 0, "G3"].values.astype(float)
+    res = minimize(lambda t: -stats.norm.logpdf(g, t[0], np.exp(t[1])).sum(), [5, 0])
+    return g, res.x[0], float(np.exp(res.x[1])), stats.shapiro(g).pvalue
+
+
+@st.cache_data
+def fit_nbinom():
+    a = df.absences.values
+    res = minimize(lambda t: -stats.nbinom.logpmf(a, np.exp(t[0]), 1 / (1 + np.exp(-t[1]))).sum(), [0, 0])
+    return float(np.exp(res.x[0])), float(1 / (1 + np.exp(-res.x[1]))), float(res.fun)
+
+
+@st.cache_data
+def clt_means(var, n, reps):
+    pop = df[var].values.astype(float)
+    return np.random.default_rng(0).choice(pop, (reps, n)).mean(axis=1)
+
+
 def page_data():
     page_header("02 · Data", "Data &amp; <em>descriptive</em> statistics",
                 "Two Portuguese secondary schools, 2005–06. G3 is the final grade (0–20); a student passes if G3 ≥ 10.")
@@ -187,12 +227,16 @@ def page_data():
     desc["skewness"] = df[num].apply(stats.skew)
     st.dataframe(desc.round(2), width="stretch")
     var = st.selectbox("Variable to plot", ["G3", "G1", "G2", "absences", "age", "studytime", "failures", "goout", "Walc"])
-    f, ax = fig(10, 3.8)
-    vals = df[var]
-    ax.hist(vals, bins=np.arange(vals.min() - .5, vals.max() + 1.5, 1), color=BLUE, edgecolor=SURFACE, linewidth=1)
-    ax.axvline(vals.mean(), color=ORANGE, ls="--", label=f"mean = {vals.mean():.2f}")
-    ax.axvline(vals.median(), color=TEXT, ls=":", label=f"median = {vals.median():.1f}")
-    ax.set(title=var, ylabel="students"); ax.legend(); show(f)
+
+    def build():
+        f, ax = fig(10, 3.8)
+        vals = df[var]
+        ax.hist(vals, bins=np.arange(vals.min() - .5, vals.max() + 1.5, 1), color=BLUE, edgecolor=SURFACE, linewidth=1)
+        ax.axvline(vals.mean(), color=ORANGE, ls="--", label=f"mean = {vals.mean():.2f}")
+        ax.axvline(vals.median(), color=TEXT, ls=":", label=f"median = {vals.median():.1f}")
+        ax.set(title=var, ylabel="students"); ax.legend()
+        return f
+    chart(("hist", var), build)
     st.caption("38 students have G3 = 0 while all have G1 > 0 — most likely they dropped out / missed the exam.")
 
 
@@ -228,38 +272,42 @@ def page_est():
                 "Which distribution fits grades and absences — and how MoM and MLE estimates compare.")
     tab1, tab2 = st.tabs(["Final grades — Normal", "Absences — Poisson vs Negative binomial"])
     with tab1:
-        g = df.loc[df.G3 > 0, "G3"].values.astype(float)
+        g, mu, sd, sw_p = fit_normal()
         st.latex(r"\ell(\mu,\sigma)=-\tfrac n2\ln(2\pi\sigma^2)-\tfrac1{2\sigma^2}\sum(x_i-\mu)^2\ \Rightarrow\ "
                  r"\hat\mu=\bar x,\ \hat\sigma^2=\tfrac1n\sum(x_i-\bar x)^2")
-        res = minimize(lambda t: -stats.norm.logpdf(g, t[0], np.exp(t[1])).sum(), [5, 0])
-        mu, sd = res.x[0], np.exp(res.x[1])
         c = st.columns(3)
         c[0].metric("MoM μ̂ / σ̂", f"{g.mean():.3f} / {g.std():.3f}")
         c[1].metric("MLE μ̂ / σ̂", f"{mu:.3f} / {sd:.3f}")
         c[2].metric("n (G3 > 0)", len(g))
-        f, ax = fig(10, 3.8); x = np.linspace(0, 21, 300)
-        ax.hist(g, bins=np.arange(.5, 21.5, 1), density=True, color=BLUE, edgecolor=SURFACE, linewidth=1, label="data (G3 > 0)")
-        ax.plot(x, stats.norm.pdf(x, mu, sd), color=ORANGE, lw=2.5, label=f"N({mu:.2f}, {sd:.2f}²)"); ax.legend(); show(f)
-        sw = stats.shapiro(g)
-        st.markdown(f"Shapiro–Wilk p = {sw.pvalue:.1e}: the normal model is a good **approximation** but not exact — "
+
+        def build_n():
+            f, ax = fig(10, 3.8); x = np.linspace(0, 21, 300)
+            ax.hist(g, bins=np.arange(.5, 21.5, 1), density=True, color=BLUE, edgecolor=SURFACE, linewidth=1, label="data (G3 > 0)")
+            ax.plot(x, stats.norm.pdf(x, mu, sd), color=ORANGE, lw=2.5, label=f"N({mu:.2f}, {sd:.2f}²)"); ax.legend()
+            return f
+        chart(("normal",), build_n)
+        st.markdown(f"Shapiro–Wilk p = {sw_p:.1e}: the normal model is a good **approximation** but not exact — "
                     "grades cluster just above the pass mark (10–11) and are integers.")
     with tab2:
         a = df.absences.values; m, s2 = a.mean(), a.var(ddof=1)
         st.markdown(f"Mean = **{m:.2f}**, variance = **{s2:.2f}** → variance/mean = **{s2 / m:.1f}**. "
                     "Poisson requires mean = variance, so the data are strongly **overdispersed**.")
-        res = minimize(lambda t: -stats.nbinom.logpmf(a, np.exp(t[0]), 1 / (1 + np.exp(-t[1]))).sum(), [0, 0])
-        r, p = np.exp(res.x[0]), 1 / (1 + np.exp(-res.x[1]))
+        r, p, nll = fit_nbinom()
         llp = stats.poisson.logpmf(a, m).sum()
         ll_mom = stats.nbinom.logpmf(a, m**2 / (s2 - m), m / s2).sum()
         st.dataframe(pd.DataFrame({
             "model": ["Poisson (MLE)", "NegBin (MoM)", "NegBin (MLE)"],
             "parameters": [f"λ = {m:.3f}", f"r = {m**2 / (s2 - m):.3f}, p = {m / s2:.3f}", f"r = {r:.3f}, p = {p:.3f}"],
-            "log-likelihood": [llp, ll_mom, -res.fun],
-            "AIC": [2 - 2 * llp, 4 - 2 * ll_mom, 4 + 2 * res.fun]}).round(2), hide_index=True)
-        k = np.arange(0, 31); f, ax = fig(10, 3.8)
-        ax.bar(k, [np.mean(a == i) for i in k], color=GRAY, label="data")
-        ax.plot(k, stats.poisson.pmf(k, m), "o-", color=BLUE, ms=5, label="Poisson")
-        ax.plot(k, stats.nbinom.pmf(k, r, p), "s-", color=ORANGE, ms=5, label="Negative binomial"); ax.legend(); show(f)
+            "log-likelihood": [llp, ll_mom, -nll],
+            "AIC": [2 - 2 * llp, 4 - 2 * ll_mom, 4 + 2 * nll]}).round(2), hide_index=True)
+
+        def build_nb():
+            k = np.arange(0, 31); f, ax = fig(10, 3.8)
+            ax.bar(k, [np.mean(a == i) for i in k], color=GRAY, label="data")
+            ax.plot(k, stats.poisson.pmf(k, m), "o-", color=BLUE, ms=5, label="Poisson")
+            ax.plot(k, stats.nbinom.pmf(k, r, p), "s-", color=ORANGE, ms=5, label="Negative binomial"); ax.legend()
+            return f
+        chart(("nbinom",), build_nb)
         finding("<b>Negative binomial wins:</b> its AIC is about 2 000 lower than the Poisson model.")
 
 
@@ -284,15 +332,18 @@ def page_ci():
 
     st.markdown("### What does the confidence level mean?")
     m = st.slider("Sample size per interval", 10, 200, 40, 10)
-    seed = st.number_input("Random seed", value=2026, step=1)
-    rng = np.random.default_rng(int(seed)); pop = df.G3.values; mu = pop.mean(); cov = 0
-    f, ax = fig(11, 4)
-    for i in range(100):
-        l, u = t_ci(rng.choice(pop, m), conf); ok = l <= mu <= u; cov += ok
-        ax.plot([i, i], [l, u], color=BLUE if ok else ORANGE, lw=1.6 if ok else 2.6, solid_capstyle="round")
-    ax.axhline(mu, color=TEXT, ls="--", lw=1)
-    ax.set_title(f"{cov} of 100 intervals contain the true mean {mu:.2f}  (orange = missed)")
-    show(f)
+    seed = int(st.number_input("Random seed", value=2026, step=1))
+
+    def build():
+        rng = np.random.default_rng(seed); pop = df.G3.values; mu = pop.mean(); cov = 0
+        f, ax = fig(11, 4)
+        for i in range(100):
+            l, u = t_ci(rng.choice(pop, m), conf); ok = l <= mu <= u; cov += ok
+            ax.plot([i, i], [l, u], color=BLUE if ok else ORANGE, lw=1.6 if ok else 2.6, solid_capstyle="round")
+        ax.axhline(mu, color=TEXT, ls="--", lw=1)
+        ax.set_title(f"{cov} of 100 intervals contain the true mean {mu:.2f}  (orange = missed)")
+        return f
+    chart(("cisim", round(conf, 2), m, seed), build)
 
 
 def page_tests():
@@ -324,13 +375,17 @@ def page_tests():
     tbl["decision"] = np.where(tbl["p-value"] < .05, "Reject H₀", "Fail to reject H₀")
     tbl["Bonferroni (α/10)"] = np.where(tbl["p-value"] < .005, "Reject H₀", "Fail to reject H₀")
     st.dataframe(tbl.style.format({"p-value": "{:.2e}"}), hide_index=True, width="stretch")
-    grp = df.groupby(col).G3
-    means = grp.mean(); err = grp.apply(lambda x: x.mean() - t_ci(x)[0] if len(x) > 1 else 0)
-    f, axs = fig(12, 3.8, 2)
-    axs[0].bar(means.index.astype(str), means, yerr=err, capsize=5, color=BLUE, ecolor=TEXT)
-    axs[0].set_title("Mean G3 ± 95 % CI")
-    pr = df.groupby(col).passed.mean(); axs[1].bar(pr.index.astype(str), pr, color=ORANGE)
-    axs[1].set_title("Pass rate"); axs[1].set_ylim(0, 1); show(f)
+
+    def build():
+        grp = df.groupby(col).G3
+        means = grp.mean(); err = grp.apply(lambda x: x.mean() - t_ci(x)[0] if len(x) > 1 else 0)
+        f, axs = fig(12, 3.8, 2)
+        axs[0].bar(means.index.astype(str), means, yerr=err, capsize=5, color=BLUE, ecolor=TEXT)
+        axs[0].set_title("Mean G3 ± 95 % CI")
+        pr = df.groupby(col).passed.mean(); axs[1].bar(pr.index.astype(str), pr, color=ORANGE)
+        axs[1].set_title("Pass rate"); axs[1].set_ylim(0, 1)
+        return f
+    chart(("tests", col), build)
     st.caption("We run many tests, so some 'significant' results may be false positives. The Bonferroni column uses α = 0.005.")
 
 
@@ -339,21 +394,29 @@ def page_corr():
                 "How strongly do early grades and habits move together with the final grade?")
     cols = ["G1", "G2", "G3", "failures", "studytime", "absences", "goout", "Walc", "age", "Medu"]
     method = st.radio("Correlation", ["spearman", "pearson"], horizontal=True)
-    corr = df[cols].corr(method=method)
-    f, ax = fig(7.5, 6); im = ax.imshow(corr, cmap=CMAP, vmin=-1, vmax=1)
-    ax.set_xticks(range(len(cols)), cols, rotation=45); ax.set_yticks(range(len(cols)), cols); ax.grid(False)
-    for i in range(len(cols)):
-        for j in range(len(cols)):
-            ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7, color=TEXT)
-    cb = plt.colorbar(im); cb.outline.set_visible(False); show(f)
+
+    def build_h():
+        corr = df[cols].corr(method=method)
+        f, ax = fig(7.5, 6); im = ax.imshow(corr, cmap=CMAP, vmin=-1, vmax=1)
+        ax.set_xticks(range(len(cols)), cols, rotation=45); ax.set_yticks(range(len(cols)), cols); ax.grid(False)
+        for i in range(len(cols)):
+            for j in range(len(cols)):
+                ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7, color=TEXT)
+        cb = plt.colorbar(im); cb.outline.set_visible(False)
+        return f
+    chart(("heat", method), build_h)
     xv = st.selectbox("Predictor of G3", ["G1", "G2", "failures", "absences", "studytime", "goout", "age"])
     lr = stats.linregress(df[xv], df.G3)
     st.latex(rf"\widehat{{G3}} = {lr.intercept:.3f} {'+' if lr.slope >= 0 else '-'} {abs(lr.slope):.3f}\cdot {xv}"
              rf"\qquad r={lr.rvalue:.3f},\ R^2={lr.rvalue**2:.3f},\ p={lr.pvalue:.1e}")
-    rng = np.random.default_rng(1); j = rng.uniform(-.25, .25, N)
-    f, ax = fig(9, 4); ax.scatter(df[xv] + j, df.G3 + j, s=16, alpha=.55, color=BLUE, edgecolors="none")
-    xx = np.linspace(df[xv].min(), df[xv].max(), 10); ax.plot(xx, lr.intercept + lr.slope * xx, color=ORANGE, lw=2.5)
-    ax.set(xlabel=xv, ylabel="G3"); show(f)
+
+    def build_s():
+        j = np.random.default_rng(1).uniform(-.25, .25, N)
+        f, ax = fig(9, 4); ax.scatter(df[xv] + j, df.G3 + j, s=16, alpha=.55, color=BLUE, edgecolors="none")
+        xx = np.linspace(df[xv].min(), df[xv].max(), 10); ax.plot(xx, lr.intercept + lr.slope * xx, color=ORANGE, lw=2.5)
+        ax.set(xlabel=xv, ylabel="G3")
+        return f
+    chart(("scatter", xv), build_s)
 
 
 def page_clt():
@@ -363,14 +426,18 @@ def page_clt():
     var = st.selectbox("Population (our data)", ["absences", "G3", "failures", "Walc"])
     n = st.slider("Sample size n", 1, 200, 30)
     reps = st.select_slider("Number of samples", [1000, 5000, 10000, 20000], 10000)
-    pop = df[var].values.astype(float); rng = np.random.default_rng(0)
-    means = rng.choice(pop, (reps, n)).mean(axis=1)
-    f, axs = fig(13, 4, 2)
-    axs[0].hist(pop, bins=30, color=GRAY, edgecolor=SURFACE); axs[0].set_title(f"Population · skew = {stats.skew(pop):.2f}")
-    axs[1].hist(means, bins=50, density=True, color=BLUE, edgecolor=SURFACE, linewidth=.5)
-    xs = np.linspace(means.min(), means.max(), 200)
-    axs[1].plot(xs, stats.norm.pdf(xs, pop.mean(), pop.std() / np.sqrt(n)), color=ORANGE, lw=2.5, label="CLT normal")
-    axs[1].set_title(f"Sample means, n = {n} · skew = {stats.skew(means):.2f}"); axs[1].legend(); show(f)
+    pop = df[var].values.astype(float)
+    means = clt_means(var, n, reps)
+
+    def build():
+        f, axs = fig(13, 4, 2)
+        axs[0].hist(pop, bins=30, color=GRAY, edgecolor=SURFACE); axs[0].set_title(f"Population · skew = {stats.skew(pop):.2f}")
+        axs[1].hist(means, bins=50, density=True, color=BLUE, edgecolor=SURFACE, linewidth=.5)
+        xs = np.linspace(means.min(), means.max(), 200)
+        axs[1].plot(xs, stats.norm.pdf(xs, pop.mean(), pop.std() / np.sqrt(n)), color=ORANGE, lw=2.5, label="CLT normal")
+        axs[1].set_title(f"Sample means, n = {n} · skew = {stats.skew(means):.2f}"); axs[1].legend()
+        return f
+    chart(("clt", var, n, reps), build)
     c = st.columns(3)
     c[0].metric("SD of sample means", f"{means.std():.3f}")
     c[1].metric("Theory σ/√n", f"{pop.std() / np.sqrt(n):.3f}")

@@ -42,8 +42,9 @@ h2, h3 {{ font-weight: 700 !important; }}
 [data-testid="stSidebar"] * {{ color: #F3F4F6 !important; }}
 [data-testid="stSidebar"] .stRadio label {{ padding: 7px 12px; border-radius: 9px; width: 100%; margin-bottom: 2px; }}
 [data-testid="stSidebar"] .stRadio label:hover {{ background: #1F2937; }}
-[data-testid="stSidebar"] .stRadio label:has(input:checked) {{ background: {GREEN}; }}
-[data-testid="stSidebar"] .stRadio label > div:first-child {{ display: none; }}
+[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{ background: {GREEN}; }}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:not([data-testid]) {{ display: none; }}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{ font-size: .92rem; font-weight: 500; }}
 .side-brand {{ font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; margin: 4px 0 4px; }}
 .side-brand span {{ color: #4ADE80 !important; }}
 .side-note {{ font-size: .78rem; opacity: .65; line-height: 1.5; }}
@@ -138,7 +139,7 @@ if page.startswith("1"):
     hero("What drives students’ final math grades?", "Research study · n = 395", "A statistical study of 395 secondary-school students using the tools of the course: probability, Bayes’ theorem, MoM &amp; MLE, confidence intervals, hypothesis tests and the Central Limit Theorem.")
     c = st.columns(4)
     c[0].metric("Students", N)
-    c[1].metric("Mean final grade", f"{df.G3.mean():.2f} / 20")
+    c[1].metric("Mean final grade (0–20)", f"{df.G3.mean():.2f}")
     c[2].metric("Pass rate (G3 ≥ 10)", f"{df.passed.mean():.1%}")
     c[3].metric("Variables", df.shape[1] - 1)
     st.markdown("### Research questions")

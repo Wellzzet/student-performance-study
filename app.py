@@ -63,7 +63,7 @@ h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !impor
           repeating-linear-gradient(90deg, rgba(10,20,48,1) 0 3px, transparent 3px 9px),
           linear-gradient(90deg, {BLUE} 0%, #3B5BDB 22%, {ORANGE_UI} 42%, #FF9A62 50%, {ORANGE_UI} 58%, #E0457B 72%, {BLUE} 100%);
         -webkit-mask-image: radial-gradient(ellipse 55% 85% at 50% 100%, black 0%, rgba(0,0,0,.55) 45%, transparent 75%),
-                            linear-gradient(90deg, black 0 6%, transparent 18% 82%, black 94% 100%);
+                            linear-gradient(90deg, rgba(0,0,0,.45) 0 5%, transparent 16% 84%, rgba(0,0,0,.45) 95% 100%);
         -webkit-mask-composite: source-over; opacity: .9; }}
 .hero .glow2 {{ position: absolute; inset: 0; background: radial-gradient(ellipse 40% 30% at 50% 100%, rgba(252,115,77,.35), transparent 70%); }}
 .hero .content {{ position: relative; text-align: center; }}
@@ -72,7 +72,7 @@ h3 {{ font-family: 'Playfair Display', serif !important; font-weight: 600 !impor
         color: {TEXT}; margin: 16px 0 14px; padding: 0; letter-spacing: -0.02em; }}
 .hero h1 em {{ font-style: italic; color: {TEXT}; }}
 .hero .sub {{ font-family: 'JetBrains Mono', monospace; font-size: .82rem; color: #B8C3E6; line-height: 1.7; }}
-.hero .stat {{ position: absolute; font-family: 'Playfair Display', serif; color: {TEXT}; font-size: 1.6rem; }}
+.hero .stat {{ position: absolute; text-shadow: 0 2px 12px rgba(10,20,48,.9); font-family: 'Playfair Display', serif; color: {TEXT}; font-size: 1.6rem; }}
 .hero .stat span {{ display: block; font-family: 'JetBrains Mono', monospace; font-size: .62rem; color: {MUTED}; letter-spacing: .06em; margin-top: 2px; }}
 .hero .s1 {{ left: 44px; top: 300px; }} .hero .s2 {{ left: 44px; top: 380px; }}
 .hero .s3 {{ right: 44px; top: 300px; text-align: right; }} .hero .s4 {{ right: 44px; top: 380px; text-align: right; }}
@@ -486,6 +486,7 @@ P_CONCL = st.Page(page_concl, title="Conclusions", url_path="conclusions")
 ORDER = [P_HOME, P_DATA, P_PROB, P_EST, P_CI, P_TESTS, P_CORR, P_CLT, P_CONCL]
 
 current = st.navigation(ORDER, position="hidden")
+ON_HOME = current.title == "Overview"
 
 # top bar (every page)
 bar = st.columns([2.2, .9, .9, .9, .9, .9, 1.3], vertical_alignment="center")
@@ -497,15 +498,14 @@ for col, pg, label in zip(bar[1:6], [P_HOME, P_PROB, P_EST, P_TESTS, P_CLT],
         st.page_link(pg, label=label)
 with bar[6]:
     with st.container(key="cta"):
-        st.page_link(P_CONCL if current.url_path == "home" else P_HOME,
-                     label="See results" if current.url_path == "home" else "← Overview")
+        st.page_link(P_CONCL if ON_HOME else P_HOME, label="See results →" if ON_HOME else "← Overview")
 st.markdown('<div class="topline"></div>', unsafe_allow_html=True)
 
 current.run()
 
 # previous / next links on section pages
-if current.url_path != "home":
-    i = [p.url_path for p in ORDER].index(current.url_path)
+if not ON_HOME:
+    i = [p.title for p in ORDER].index(current.title)
     st.markdown('<div class="topline" style="margin-top:34px"></div>', unsafe_allow_html=True)
     nav = st.columns([1, 1, 1])
     with nav[0]:

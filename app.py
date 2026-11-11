@@ -4,6 +4,7 @@ Run locally:  streamlit run app.py
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -11,8 +12,80 @@ from scipy import stats
 from scipy.optimize import minimize
 
 st.set_page_config(page_title="Student Performance Study", page_icon="📊", layout="wide")
-plt.rcParams.update({"axes.grid": True, "grid.alpha": .3, "axes.spines.top": False, "axes.spines.right": False})
-BLUE, ORANGE, GREEN, RED = "#2a6fdb", "#e8833a", "#3aa76d", "#d64545"
+
+# ---------------------------------------------------------------- design system: white · black · green (+ blue)
+INK, MUTED, LINE, BG_SOFT = "#0B0B0C", "#6B7280", "#E5E7EB", "#F6F7F6"
+GREEN, BLUE = "#15803D", "#2563EB"          # primary / secondary data colours (colour-blind-safe pair)
+GREEN_SOFT = "#DCFCE7"
+ORANGE, RED = BLUE, INK                     # legacy aliases
+CMAP = LinearSegmentedColormap.from_list("bgg", [BLUE, "#F3F4F6", GREEN])   # diverging: blue ← gray → green
+
+plt.rcParams.update({
+    "font.family": "DejaVu Sans", "font.size": 10, "text.color": INK,
+    "axes.edgecolor": "#D1D5DB", "axes.labelcolor": MUTED, "axes.titlecolor": INK,
+    "axes.titlesize": 11, "axes.titleweight": "bold", "axes.titlelocation": "left", "axes.titlepad": 10,
+    "axes.grid": True, "axes.grid.axis": "y", "grid.color": "#EEF0F2", "grid.linewidth": .8,
+    "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
+    "xtick.color": MUTED, "ytick.color": MUTED, "xtick.major.size": 0, "ytick.major.size": 0,
+    "legend.frameon": False, "figure.facecolor": "white", "axes.facecolor": "white",
+    "patch.linewidth": 0, "lines.linewidth": 2,
+})
+
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+html, body, .stMarkdown, p, li, label, input, button, textarea {{ font-family: 'Inter', sans-serif; }}
+.block-container {{ padding-top: 2.2rem; max-width: 1180px; }}
+h1, h2, h3 {{ font-family: 'Inter', sans-serif !important; color: {INK}; letter-spacing: -0.02em; }}
+h2, h3 {{ font-weight: 700 !important; }}
+[data-testid="stSidebar"] {{ background: {INK}; }}
+[data-testid="stSidebar"] * {{ color: #F3F4F6 !important; }}
+[data-testid="stSidebar"] .stRadio label {{ padding: 7px 12px; border-radius: 9px; width: 100%; margin-bottom: 2px; }}
+[data-testid="stSidebar"] .stRadio label:hover {{ background: #1F2937; }}
+[data-testid="stSidebar"] .stRadio label:has(input:checked) {{ background: {GREEN}; }}
+[data-testid="stSidebar"] .stRadio label > div:first-child {{ display: none; }}
+.side-brand {{ font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; margin: 4px 0 4px; }}
+.side-brand span {{ color: #4ADE80 !important; }}
+.side-note {{ font-size: .78rem; opacity: .65; line-height: 1.5; }}
+.hero {{ background: {INK}; color: white; border-radius: 20px; padding: 34px 38px; margin-bottom: 26px;
+        background-image: radial-gradient(circle at 95% 0%, rgba(21,128,61,.6), transparent 45%); }}
+.hero .kicker {{ display: inline-block; background: {GREEN}; color: white; font-size: .72rem; font-weight: 700;
+        letter-spacing: .08em; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; margin-bottom: 14px; }}
+.hero h1 {{ color: white !important; font-size: 2.3rem; font-weight: 800; line-height: 1.12; margin: 0 0 10px 0; padding: 0; }}
+.hero p {{ color: #D1D5DB; font-size: 1.02rem; margin: 0; max-width: 780px; line-height: 1.55; }}
+[data-testid="stMetric"] {{ background: white; border: 1px solid {LINE}; border-radius: 14px; padding: 16px 18px;
+        box-shadow: 0 1px 2px rgba(0,0,0,.04); }}
+[data-testid="stMetricLabel"] p {{ color: {MUTED} !important; font-size: .82rem; font-weight: 500; }}
+[data-testid="stMetricValue"] {{ color: {INK}; font-weight: 800; letter-spacing: -0.02em; }}
+.card {{ border: 1px solid {LINE}; border-radius: 14px; padding: 18px 20px; background: white; height: 100%;
+        box-shadow: 0 1px 2px rgba(0,0,0,.04); }}
+.card .num {{ color: {GREEN}; font-weight: 800; font-size: .78rem; letter-spacing: .08em; }}
+.card h4 {{ margin: 4px 0 6px 0; font-size: 1rem; color: {INK}; font-weight: 700; }}
+.card p {{ margin: 0; color: {MUTED}; font-size: .9rem; line-height: 1.45; }}
+.finding {{ border-left: 4px solid {GREEN}; background: {BG_SOFT}; border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 10px 0 18px; }}
+.pill {{ display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .74rem; font-weight: 700; }}
+.pill.yes {{ background: {GREEN_SOFT}; color: {GREEN}; }}
+.pill.no {{ background: #F3F4F6; color: {MUTED}; }}
+[data-testid="stDataFrame"], [data-testid="stTable"] {{ border-radius: 12px; overflow: hidden; }}
+.stTabs [data-baseweb="tab"] {{ font-weight: 600; }}
+footer {{ visibility: hidden; }}
+</style>
+""", unsafe_allow_html=True)
+
+
+def hero(title, kicker, text=""):
+    st.markdown(f'<div class="hero"><span class="kicker">{kicker}</span><h1>{title}</h1><p>{text}</p></div>',
+                unsafe_allow_html=True)
+
+
+def finding(html):
+    st.markdown(f'<div class="finding">{html}</div>', unsafe_allow_html=True)
+
+
+def show(f):
+    f.tight_layout()
+    st.pyplot(f, width="stretch")
+    plt.close(f)
 
 
 @st.cache_data
@@ -49,42 +122,45 @@ def fig(w=9, h=4, ncols=1):
 
 
 # ---------------------------------------------------------------- sidebar
-st.sidebar.title("📊 Student Performance")
-st.sidebar.caption("Probability Theory & Mathematical Statistics — Narxoz University")
+st.sidebar.markdown('<div class="side-brand">Student <span>Performance</span></div>'
+                    '<div class="side-note">Probability Theory &amp; Mathematical Statistics<br>Narxoz University</div>',
+                    unsafe_allow_html=True)
+st.sidebar.markdown("&nbsp;")
 page = st.sidebar.radio("Section", [
     "1. Overview", "2. Data & descriptive stats", "3. Probability & Bayes", "4. Estimation (MoM & MLE)",
-    "5. Confidence intervals", "6. Hypothesis tests", "7. Correlation & regression", "8. CLT simulator", "9. Conclusions"])
-st.sidebar.markdown(f"**n = {N}** students · α = 0.05")
-st.sidebar.markdown("Data: Cortez & Silva (2008), UCI *Student Performance* (math).")
+    "5. Confidence intervals", "6. Hypothesis tests", "7. Correlation & regression", "8. CLT simulator", "9. Conclusions"],
+    label_visibility="collapsed")
+st.sidebar.markdown(f'<div class="side-note" style="margin-top:18px">n = {N} students · α = 0.05<br>'
+                    'Data: Cortez &amp; Silva (2008), UCI <i>Student Performance</i></div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- 1
 if page.startswith("1"):
-    st.title("What drives students' final math grades?")
-    st.markdown("A statistical study of **395 secondary-school students** using the tools of the course: "
-                "probability, Bayes' theorem, MoM & MLE, confidence intervals, hypothesis tests and the CLT.")
+    hero("What drives students’ final math grades?", "Research study · n = 395", "A statistical study of 395 secondary-school students using the tools of the course: probability, Bayes’ theorem, MoM &amp; MLE, confidence intervals, hypothesis tests and the Central Limit Theorem.")
     c = st.columns(4)
     c[0].metric("Students", N)
     c[1].metric("Mean final grade", f"{df.G3.mean():.2f} / 20")
     c[2].metric("Pass rate (G3 ≥ 10)", f"{df.passed.mean():.1%}")
     c[3].metric("Variables", df.shape[1] - 1)
-    st.subheader("Research questions")
-    st.table(pd.DataFrame({
-        "Question": ["How likely is a student to pass, and how do past failures change that?",
-                     "Which distributions describe grades and absences?",
-                     "What are the population mean grade and pass rate?",
-                     "Which factors are associated with the final grade?",
-                     "Do early grades predict the final grade?",
-                     "Does the CLT work for a strongly skewed variable?"],
-        "Method": ["Conditional probability, Bayes", "MoM, MLE, χ² goodness-of-fit, AIC", "t, χ², Wald, Wilson CIs",
-                   "Welch t, ANOVA, Mann–Whitney, Kruskal–Wallis, χ²", "Pearson/Spearman, linear regression",
-                   "Simulation, bootstrap"]}, index=[f"RQ{i}" for i in range(1, 7)]))
-    st.info("**Key findings:** past failures and higher-education plans have the strongest association with the final grade; "
-            "study time only a weak one; absences follow a negative binomial (not Poisson) distribution.")
+    st.markdown("### Research questions")
+    rqs = [("How likely is a student to pass?", "Conditional probability, Bayes’ theorem"),
+           ("Which distributions fit the data?", "MoM, MLE, χ² goodness-of-fit, AIC"),
+           ("What are the true mean and pass rate?", "t, χ², Wald and Wilson intervals"),
+           ("Which factors matter?", "Welch t, ANOVA, Mann–Whitney, χ² independence"),
+           ("Do early grades predict the final?", "Correlation, linear regression"),
+           ("Does the CLT hold for skewed data?", "Simulation, bootstrap")]
+    for row in range(2):
+        cols = st.columns(3)
+        for j, col in enumerate(cols):
+            q, m = rqs[row * 3 + j]
+            col.markdown(f'<div class="card"><div class="num">RQ{row * 3 + j + 1}</div><h4>{q}</h4><p>{m}</p></div>',
+                         unsafe_allow_html=True)
+        st.markdown("")
+    finding("<b>Key findings.</b> Past failures and higher-education plans have the strongest association with the "
+            "final grade; study time only a weak one; absences follow a negative binomial — not a Poisson — distribution.")
 
 # ---------------------------------------------------------------- 2
 elif page.startswith("2"):
-    st.title("Data & descriptive statistics")
-    st.markdown("Two Portuguese secondary schools, school year 2005–06. **G3** = final grade (0–20), pass if G3 ≥ 10.")
+    hero("Data &amp; descriptive statistics", "02 · Data", "Two Portuguese secondary schools, 2005–06. G3 is the final grade (0–20); a student passes if G3 ≥ 10.")
     with st.expander("Show raw data"):
         st.dataframe(df, width="stretch")
     num = ["G1", "G2", "G3", "absences", "age", "studytime", "failures"]
@@ -94,15 +170,15 @@ elif page.startswith("2"):
     var = st.selectbox("Variable to plot", ["G3", "G1", "G2", "absences", "age", "studytime", "failures", "goout", "Walc"])
     f, ax = fig(10, 3.8)
     vals = df[var]
-    ax.hist(vals, bins=np.arange(vals.min() - .5, vals.max() + 1.5, 1), color=BLUE, edgecolor="white")
+    ax.hist(vals, bins=np.arange(vals.min() - .5, vals.max() + 1.5, 1), color=GREEN, edgecolor="white")
     ax.axvline(vals.mean(), color=RED, ls="--", label=f"mean = {vals.mean():.2f}")
-    ax.axvline(vals.median(), color=GREEN, ls=":", label=f"median = {vals.median():.1f}")
-    ax.set(title=var, ylabel="students"); ax.legend(); st.pyplot(f)
+    ax.axvline(vals.median(), color=BLUE, ls=":", label=f"median = {vals.median():.1f}")
+    ax.set(title=var, ylabel="students"); ax.legend(); show(f)
     st.caption("38 students have G3 = 0 while all have G1 > 0 — most likely they dropped out / missed the exam.")
 
 # ---------------------------------------------------------------- 3
 elif page.startswith("3"):
-    st.title("Probability from data & Bayes' theorem")
+    hero("Probability &amp; Bayes’ theorem", "03 · Probability", "Empirical and conditional probabilities, the law of total probability and Bayes’ theorem — computed live from the sample.")
     st.latex(r"P(A\mid B)=\frac{P(A\cap B)}{P(B)},\qquad P(B\mid A)=\frac{P(A\mid B)P(B)}{P(A)}")
     factor = st.selectbox("Condition B", ["failures ≥ 1", "higher = no", "internet = no", "romantic = yes",
                                           "studytime ≥ 3", "goout ≥ 4", "absences > 10", "sex = M"])
@@ -128,7 +204,7 @@ elif page.startswith("3"):
 
 # ---------------------------------------------------------------- 4
 elif page.startswith("4"):
-    st.title("Point estimation: method of moments vs maximum likelihood")
+    hero("Method of moments vs maximum likelihood", "04 · Estimation", "Which distribution fits grades and absences — and how MoM and MLE estimates compare.")
     tab1, tab2 = st.tabs(["Final grades — Normal", "Absences — Poisson vs Negative binomial"])
     with tab1:
         g = df.loc[df.G3 > 0, "G3"].values.astype(float)
@@ -141,8 +217,8 @@ elif page.startswith("4"):
         c[1].metric("MLE μ̂ / σ̂ (numerical)", f"{mu:.3f} / {sd:.3f}")
         c[2].metric("n (G3 > 0)", len(g))
         f, ax = fig(10, 3.8); x = np.linspace(0, 21, 300)
-        ax.hist(g, bins=np.arange(.5, 21.5, 1), density=True, color=BLUE, alpha=.7, edgecolor="white")
-        ax.plot(x, stats.norm.pdf(x, mu, sd), color=RED, lw=2, label=f"N({mu:.2f}, {sd:.2f}²)"); ax.legend(); st.pyplot(f)
+        ax.hist(g, bins=np.arange(.5, 21.5, 1), density=True, color=GREEN, edgecolor="white")
+        ax.plot(x, stats.norm.pdf(x, mu, sd), color=RED, lw=2, label=f"N({mu:.2f}, {sd:.2f}²)"); ax.legend(); show(f)
         sw = stats.shapiro(g)
         st.markdown(f"Shapiro–Wilk p = {sw.pvalue:.1e}: the normal model is a good **approximation** but not exact — "
                     "grades cluster just above the pass mark (10–11) and are integers.")
@@ -160,14 +236,14 @@ elif page.startswith("4"):
             "AIC": [2 - 2 * llp, 4 - 2 * stats.nbinom.logpmf(a, m**2 / (s2 - m), m / s2).sum(), 4 + 2 * res.fun]}).round(2),
             hide_index=True)
         k = np.arange(0, 31); f, ax = fig(10, 3.8)
-        ax.bar(k, [np.mean(a == i) for i in k], color=ORANGE, alpha=.7, label="data")
-        ax.plot(k, stats.poisson.pmf(k, m), "o-", color=BLUE, label="Poisson")
-        ax.plot(k, stats.nbinom.pmf(k, r, p), "s-", color=GREEN, label="Negative binomial"); ax.legend(); st.pyplot(f)
-        st.success("Negative binomial wins: AIC ≈ 2 000 lower than Poisson.")
+        ax.bar(k, [np.mean(a == i) for i in k], color="#D1D5DB", label="data")
+        ax.plot(k, stats.poisson.pmf(k, m), "o-", color=BLUE, ms=5, label="Poisson")
+        ax.plot(k, stats.nbinom.pmf(k, r, p), "s-", color=GREEN, ms=5, label="Negative binomial"); ax.legend(); show(f)
+        finding("<b>Negative binomial wins:</b> its AIC is about 2 000 lower than the Poisson model.")
 
 # ---------------------------------------------------------------- 5
 elif page.startswith("5"):
-    st.title("Confidence intervals")
+    hero("Confidence intervals", "05 · Inference", "Interval estimates for the mean, the variance and the pass rate. Move the slider to change the confidence level.")
     conf = st.slider("Confidence level", .80, .99, .95, .01)
     z = stats.norm.ppf((1 + conf) / 2)
     var = st.selectbox("Variable for the mean", ["G3", "G1", "G2", "absences", "studytime"])
@@ -188,14 +264,13 @@ elif page.startswith("5"):
     f, ax = fig(11, 4)
     for i in range(100):
         l, u = t_ci(rng.choice(pop, m), conf); ok = l <= mu <= u; cov += ok
-        ax.plot([i, i], [l, u], color=BLUE if ok else RED, lw=1.5)
+        ax.plot([i, i], [l, u], color=GREEN if ok else INK, lw=1.6 if ok else 2.6, solid_capstyle="round")
     ax.axhline(mu, color="black", ls="--"); ax.set_title(f"{cov} of 100 intervals contain the true mean {mu:.2f}")
-    st.pyplot(f)
+    show(f)
 
 # ---------------------------------------------------------------- 6
 elif page.startswith("6"):
-    st.title("Hypothesis tests")
-    st.markdown("H₀: the factor is **not** associated with the final grade · H₁: it is (two-sided) · α = 0.05")
+    hero("Hypothesis tests", "06 · Testing", "H₀: the factor is not associated with the final grade · H₁: it is (two-sided) · α = 0.05")
     binary = {"higher": ("yes", "no"), "internet": ("yes", "no"), "sex": ("M", "F"), "romantic": ("no", "yes"),
               "address": ("U", "R"), "paid": ("yes", "no"), "schoolsup": ("no", "yes"), "famsup": ("yes", "no"),
               "activities": ("yes", "no")}
@@ -224,35 +299,35 @@ elif page.startswith("6"):
     grp = df.groupby(col).G3
     means = grp.mean(); err = grp.apply(lambda x: x.mean() - t_ci(x)[0] if len(x) > 1 else 0)
     f, axs = fig(12, 3.8, 2)
-    axs[0].bar(means.index.astype(str), means, yerr=err, capsize=6, color=BLUE, alpha=.8); axs[0].set_title("Mean G3 ± 95 % CI")
-    pr = df.groupby(col).passed.mean(); axs[1].bar(pr.index.astype(str), pr, color=GREEN, alpha=.8)
-    axs[1].set_title("Pass rate"); axs[1].set_ylim(0, 1); st.pyplot(f)
+    axs[0].bar(means.index.astype(str), means, yerr=err, capsize=5, color=GREEN, ecolor=INK); axs[0].set_title("Mean G3 ± 95 % CI")
+    pr = df.groupby(col).passed.mean(); axs[1].bar(pr.index.astype(str), pr, color=BLUE)
+    axs[1].set_title("Pass rate"); axs[1].set_ylim(0, 1); show(f)
     st.caption("We run many tests, so some 'significant' results may be false positives. The Bonferroni column uses α = 0.005.")
 
 # ---------------------------------------------------------------- 7
 elif page.startswith("7"):
-    st.title("Correlation & regression")
+    hero("Correlation &amp; regression", "07 · Relationships", "How strongly do early grades and habits move together with the final grade?")
     cols = ["G1", "G2", "G3", "failures", "studytime", "absences", "goout", "Walc", "age", "Medu"]
     method = st.radio("Correlation", ["spearman", "pearson"], horizontal=True)
     corr = df[cols].corr(method=method)
-    f, ax = fig(7, 6); im = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
+    f, ax = fig(7, 6); im = ax.imshow(corr, cmap=CMAP, vmin=-1, vmax=1)
     ax.set_xticks(range(len(cols)), cols, rotation=45); ax.set_yticks(range(len(cols)), cols); ax.grid(False)
     for i in range(len(cols)):
         for j in range(len(cols)):
             ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=7)
-    plt.colorbar(im); st.pyplot(f)
+    plt.colorbar(im); show(f)
     xv = st.selectbox("Predictor of G3", ["G1", "G2", "failures", "absences", "studytime", "goout", "age"])
     lr = stats.linregress(df[xv], df.G3)
     st.latex(rf"\widehat{{G3}} = {lr.intercept:.3f} {'+' if lr.slope >= 0 else '-'} {abs(lr.slope):.3f}\cdot {xv}"
              rf"\qquad r={lr.rvalue:.3f},\ R^2={lr.rvalue**2:.3f},\ p={lr.pvalue:.1e}")
     rng = np.random.default_rng(1); j = rng.uniform(-.25, .25, N)
-    f, ax = fig(9, 4); ax.scatter(df[xv] + j, df.G3 + j, s=12, alpha=.5, color=BLUE)
+    f, ax = fig(9, 4); ax.scatter(df[xv] + j, df.G3 + j, s=14, alpha=.45, color=BLUE, edgecolors="none")
     xx = np.linspace(df[xv].min(), df[xv].max(), 10); ax.plot(xx, lr.intercept + lr.slope * xx, color=RED, lw=2)
-    ax.set(xlabel=xv, ylabel="G3"); st.pyplot(f)
+    ax.set(xlabel=xv, ylabel="G3"); show(f)
 
 # ---------------------------------------------------------------- 8
 elif page.startswith("8"):
-    st.title("Central Limit Theorem simulator")
+    hero("Central Limit Theorem", "08 · Simulation", "Draw thousands of samples from a skewed variable and watch the sample means become normal.")
     st.latex(r"\bar X_n \;\approx\; N\!\left(\mu,\ \frac{\sigma^2}{n}\right)\quad\text{for large } n")
     var = st.selectbox("Population (our data)", ["absences", "G3", "failures", "Walc"])
     n = st.slider("Sample size n", 1, 200, 30)
@@ -260,11 +335,11 @@ elif page.startswith("8"):
     pop = df[var].values.astype(float); rng = np.random.default_rng(0)
     means = rng.choice(pop, (reps, n)).mean(axis=1)
     f, axs = fig(13, 4, 2)
-    axs[0].hist(pop, bins=30, color=ORANGE, edgecolor="white"); axs[0].set_title(f"Population: skew = {stats.skew(pop):.2f}")
-    axs[1].hist(means, bins=50, density=True, color=BLUE, alpha=.7, edgecolor="white")
+    axs[0].hist(pop, bins=30, color="#9CA3AF", edgecolor="white"); axs[0].set_title(f"Population: skew = {stats.skew(pop):.2f}")
+    axs[1].hist(means, bins=50, density=True, color=GREEN, edgecolor="white")
     xs = np.linspace(means.min(), means.max(), 200)
     axs[1].plot(xs, stats.norm.pdf(xs, pop.mean(), pop.std() / np.sqrt(n)), color=RED, lw=2, label="CLT normal")
-    axs[1].set_title(f"Sample means, n = {n}: skew = {stats.skew(means):.2f}"); axs[1].legend(); st.pyplot(f)
+    axs[1].set_title(f"Sample means, n = {n}: skew = {stats.skew(means):.2f}"); axs[1].legend(); show(f)
     c = st.columns(3)
     c[0].metric("SD of sample means", f"{means.std():.3f}")
     c[1].metric("Theory σ/√n", f"{pop.std() / np.sqrt(n):.3f}")
@@ -272,18 +347,25 @@ elif page.startswith("8"):
 
 # ---------------------------------------------------------------- 9
 else:
-    st.title("Conclusions")
-    st.markdown("""
-1. **Past failures are the strongest warning sign.** P(pass | ≥1 failure) = 0.37 vs 0.75 without; mean grade ≈ 4 points lower (95 % CI 2.9–5.1).
-2. **Motivation matters.** Students planning higher education score ≈ 3.8 points higher (Cohen's d ≈ 0.84).
-3. **Study time has only a weak link** to the grade (ANOVA p ≈ 0.16, Spearman ρ ≈ 0.10).
-4. **Grades of students who sat the exam are roughly normal**, ≈ N(11.5, 3.2²), with clustering just above the pass mark.
-5. **Absences follow a negative binomial, not a Poisson distribution** (variance ≈ 11 × mean).
-6. **Early grades predict the final grade:** G1 explains ≈ 64 % of the variation of G3.
-7. Effects of sex, internet access and relationships are small and disappear after a Bonferroni correction.
-
-**Limitations:** observational data (association ≠ causation), two Portuguese schools in 2005–06, self-reported variables,
-G3 = 0 codes dropouts.
-
-**Reference:** Cortez, P. & Silva, A. (2008). *Using Data Mining to Predict Secondary School Student Performance.* UCI ML Repository.
-""")
+    hero("Conclusions", "09 · Results", "What the data say — and what they cannot say.")
+    items = [("Past failures", "P(pass | ≥1 failure) = 0.37 vs 0.75 without; mean grade ≈ 4 points lower (95 % CI 2.9–5.1).", True),
+             ("Higher-education plans", "Students who plan to go to university score ≈ 3.8 points higher (Cohen’s d ≈ 0.84).", True),
+             ("Early grades", "The first-period grade G1 explains ≈ 64 % of the variation of the final grade.", True),
+             ("Study time", "Only a weak link to the grade (ANOVA p ≈ 0.16, Spearman ρ ≈ 0.10).", False),
+             ("Sex, internet, relationships", "Small effects that disappear after a Bonferroni correction.", False),
+             ("Distributions", "Grades ≈ N(11.5, 3.2²) with clustering above the pass mark; absences are negative binomial (variance ≈ 11 × mean).", None)]
+    for row in range(2):
+        cols = st.columns(3)
+        for j, col in enumerate(cols):
+            t_, d_, strong = items[row * 3 + j]
+            tag = ('<span class="pill yes">strong effect</span>' if strong else
+                   '<span class="pill no">weak / not robust</span>' if strong is False else
+                   '<span class="pill yes">model fit</span>')
+            col.markdown(f'<div class="card">{tag}<h4 style="margin-top:10px">{t_}</h4><p>{d_}</p></div>',
+                         unsafe_allow_html=True)
+        st.markdown("")
+    st.markdown("### Limitations")
+    st.markdown("Observational data (association ≠ causation) · two Portuguese schools in 2005–06 · self-reported "
+                "variables · G3 = 0 most likely codes dropouts.")
+    st.caption("Reference: Cortez, P. & Silva, A. (2008). Using Data Mining to Predict Secondary School Student "
+               "Performance. UCI Machine Learning Repository.")
